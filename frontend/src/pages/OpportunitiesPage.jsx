@@ -9,6 +9,7 @@ import {
   LogoReddit,
   LogoHackerNews,
   LogoStackOverflow,
+  LogoLinkedIn,
   IconSearch,
   IconFilter,
   IconClose,
@@ -18,7 +19,10 @@ import {
   IconMail,
   IconCopy,
   IconCheck,
-  IconArrowRight
+  IconArrowRight,
+  IconCalendar,
+  IconDownload,
+  IconRefresh
 } from '../components/Icons';
 
 // Concise problem title formatter for scannable cards
@@ -56,6 +60,9 @@ export function OpportunitiesPage() {
     opportunities,
     updateOpportunityStage,
     evaluateRelevance,
+    exportOpportunitiesCsv,
+    syncBackendSignals,
+    isDiscoveringLive,
     showToast
   } = useOpportunities();
 
@@ -136,9 +143,9 @@ export function OpportunitiesPage() {
       .filter((opp) => {
         if (searchQuery.trim()) {
           const q = searchQuery.toLowerCase();
-          const matchCompany = opp.company.toLowerCase().includes(q);
-          const matchTitle = opp.title.toLowerCase().includes(q);
-          const matchSummary = opp.problemSummary.toLowerCase().includes(q);
+          const matchCompany = (opp.company || '').toLowerCase().includes(q);
+          const matchTitle = (opp.title || '').toLowerCase().includes(q);
+          const matchSummary = (opp.problemSummary || '').toLowerCase().includes(q);
           const matchLocation = (opp.location || '').toLowerCase().includes(q);
           const matchTech = (opp.technologies || []).some((t) => t.toLowerCase().includes(q));
           if (!matchCompany && !matchTitle && !matchSummary && !matchTech && !matchLocation) {
@@ -208,6 +215,7 @@ export function OpportunitiesPage() {
     if (s.includes('reddit')) return <LogoReddit size={16} />;
     if (s.includes('hacker') || s.includes('hn')) return <LogoHackerNews size={16} />;
     if (s.includes('stack')) return <LogoStackOverflow size={16} />;
+    if (s.includes('linkedin')) return <LogoLinkedIn size={16} />;
     return <LogoGitHub size={16} />;
   };
 
@@ -308,6 +316,7 @@ export function OpportunitiesPage() {
                     <option value="Reddit">Reddit</option>
                     <option value="Stack Overflow">Stack Overflow</option>
                     <option value="Hacker News">Hacker News</option>
+                    <option value="LinkedIn">LinkedIn</option>
                   </select>
                 </div>
 
@@ -371,7 +380,7 @@ export function OpportunitiesPage() {
             )}
           </div>
 
-          {/* Simple Sort Option */}
+          {/* Simple Sort Option & Export CSV */}
           <div className="opps-sort-wrap">
             <select
               className="opps-sort-select"
@@ -384,6 +393,27 @@ export function OpportunitiesPage() {
               <option value="score-asc">Lowest score</option>
             </select>
           </div>
+
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            onClick={syncBackendSignals}
+            disabled={isDiscoveringLive}
+            title="Retrieve fresh live technical signals from external APIs"
+          >
+            <IconRefresh size={13} className={isDiscoveringLive ? 'spin' : ''} />
+            <span>{isDiscoveringLive ? 'Syncing...' : 'Sync Live'}</span>
+          </button>
+
+          <button
+            type="button"
+            className="btn btn-outline btn-sm"
+            onClick={exportOpportunitiesCsv}
+            title="Download opportunities as CSV"
+          >
+            <IconDownload size={13} />
+            <span>CSV</span>
+          </button>
         </div>
       </header>
 
@@ -461,7 +491,7 @@ export function OpportunitiesPage() {
 
                 {/* Company Name & Location */}
                 <div className="card-account-line">
-                  <strong className="card-company-name">{opp.company}</strong>
+                  <strong className="card-company-name">{opp.company || opp.sourceIdentifier || 'Community Discussion'}</strong>
                   {opp.location && (
                     <span className="card-company-location">· {opp.location}</span>
                   )}
@@ -846,6 +876,15 @@ export function OpportunitiesPage() {
               </div>
 
               <div className="drawer-footer-buttons">
+                <button
+                  type="button"
+                  className="btn btn-outline"
+                  onClick={() => navigate(`/meetings?oppId=${activeOpp.id}`)}
+                  title="Schedule meeting with prospect"
+                >
+                  <IconCalendar size={14} />
+                  <span>Schedule meeting</span>
+                </button>
                 <button
                   type="button"
                   className="btn btn-primary btn-compose-drawer"

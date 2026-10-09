@@ -11,11 +11,19 @@ import {
   IconMail,
   IconArrowRight,
   IconClose,
-  IconTerminal
+  IconTerminal,
+  IconDownload,
+  IconSparkles
 } from '../components/Icons';
 
 export function DiscoverPage() {
-  const { opportunities, updateOpportunityStage, showToast } = useOpportunities();
+  const {
+    opportunities,
+    updateOpportunityStage,
+    syncBackendSignals,
+    isDiscoveringLive,
+    exportOpportunitiesCsv
+  } = useOpportunities();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedSource, setSelectedSource] = useState('All');
@@ -42,9 +50,9 @@ export function DiscoverPage() {
         // Search query
         if (searchQuery.trim()) {
           const q = searchQuery.toLowerCase();
-          const matchCompany = opp.company.toLowerCase().includes(q);
-          const matchTitle = opp.title.toLowerCase().includes(q);
-          const matchSummary = opp.problemSummary.toLowerCase().includes(q);
+          const matchCompany = (opp.company || '').toLowerCase().includes(q);
+          const matchTitle = (opp.title || '').toLowerCase().includes(q);
+          const matchSummary = (opp.problemSummary || '').toLowerCase().includes(q);
           const matchExcerpt = (opp.originalExcerpt || '').toLowerCase().includes(q);
           const matchLocation = (opp.location || '').toLowerCase().includes(q);
           const matchTech = (opp.technologies || []).some((t) => t.toLowerCase().includes(q));
@@ -129,16 +137,6 @@ export function DiscoverPage() {
     setSortBy('score-desc');
   };
 
-  const handleExportData = () => {
-    const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(filteredOpportunities, null, 2));
-    const downloadAnchor = document.createElement('a');
-    downloadAnchor.setAttribute('href', dataStr);
-    downloadAnchor.setAttribute('download', `darkintent_signals_${new Date().toISOString().slice(0, 10)}.json`);
-    document.body.appendChild(downloadAnchor);
-    downloadAnchor.click();
-    downloadAnchor.remove();
-    showToast(`Exported ${filteredOpportunities.length} signals as JSON`, 'success');
-  };
 
   return (
     <div className="discover-page">
@@ -151,14 +149,24 @@ export function DiscoverPage() {
           </p>
         </div>
         <div className="header-meta-actions">
-          <span className="demo-notice-tag">Demo Stream</span>
           <button
             type="button"
             className="btn btn-outline btn-sm"
-            onClick={handleExportData}
-            title="Export filtered records"
+            onClick={exportOpportunitiesCsv}
+            title="Download CSV for spreadsheets"
           >
-            Export JSON ({filteredOpportunities.length})
+            <IconDownload size={13} />
+            <span>Export CSV</span>
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            onClick={syncBackendSignals}
+            disabled={isDiscoveringLive}
+            title="Retrieve live developer discussions across GitHub, Hacker News, and Stack Overflow"
+          >
+            <IconSparkles size={13} />
+            <span>{isDiscoveringLive ? 'Syncing Signals...' : '⚡ Sync Live Signals'}</span>
           </button>
         </div>
       </div>
@@ -203,6 +211,7 @@ export function DiscoverPage() {
               <option value="Reddit">Reddit</option>
               <option value="Stack Overflow">Stack Overflow</option>
               <option value="Hacker News">Hacker News</option>
+              <option value="LinkedIn">LinkedIn Context</option>
             </select>
           </div>
 
@@ -381,9 +390,9 @@ export function DiscoverPage() {
 
                   <div className="feed-account-line">
                     <span className="feed-account-label">Company Match:</span>
-                    <strong className="feed-account-name">{opp.company}</strong>
-                    <span className="feed-account-loc">({opp.location})</span>
-                    <span className="feed-demo-pill">Sample Match</span>
+                    <strong className="feed-account-name">{opp.company || opp.sourceIdentifier || 'Community Discussion'}</strong>
+                    {opp.location && <span className="feed-account-loc">({opp.location})</span>}
+                    <span className="feed-demo-pill">{opp.isLive ? 'Live Signal' : 'Verified Signal'}</span>
                   </div>
 
                   <p className="feed-row-summary">

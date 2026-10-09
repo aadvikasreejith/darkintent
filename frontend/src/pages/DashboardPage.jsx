@@ -1,15 +1,17 @@
 import { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useOpportunities } from '../context/useOpportunities';
-import { ANALYTICS_DATA, formatINR } from '../data/sampleData';
+import { formatINR } from '../data/sampleData';
 import { ScoreBadge } from '../components/ScoreBadge';
 import {
   LogoGitHub,
   LogoReddit,
   LogoHackerNews,
   LogoStackOverflow,
+  LogoLinkedIn,
   IconArrowRight,
-  IconExternalLink
+  IconExternalLink,
+  IconRefresh
 } from '../components/Icons';
 
 // Helper to provide concise, specific technical problem titles (approx 4–8 words)
@@ -45,7 +47,15 @@ function getShortProblemTitle(title) {
 }
 
 export function DashboardPage() {
-  const { opportunities, currentUser } = useOpportunities();
+  const {
+    opportunities,
+    currentUser,
+    meetings = [],
+    backendStatus,
+    checkBackend,
+    syncBackendSignals,
+    isDiscoveringLive
+  } = useOpportunities();
 
   // Greeting based on Indian Standard Time hour
   const [greeting] = useState(() => {
@@ -65,9 +75,10 @@ export function DashboardPage() {
     (o) => o.pipelineStage === 'Contacted' || o.pipelineStage === 'Engaged'
   ).length;
 
-  const meetingsCount = opportunities.filter(
-    (o) => o.pipelineStage === 'Meeting'
-  ).length;
+  const meetingsCount = Math.max(
+    meetings.length,
+    opportunities.filter((o) => o.pipelineStage === 'Meeting').length
+  );
 
   const closedWonCount = opportunities.filter(
     (o) => o.pipelineStage === 'Won/Lost'
@@ -80,13 +91,36 @@ export function DashboardPage() {
       .slice(0, 6);
   }, [opportunities]);
 
+  // Dynamic distribution derived from genuine retrieved opportunities
+  const dynamicSourceDistribution = useMemo(() => {
+    const counts = { 'GitHub': 0, 'Hacker News': 0, 'Stack Overflow': 0, 'Reddit': 0 };
+    opportunities.forEach((o) => {
+      const src = o.source || 'GitHub';
+      counts[src] = (counts[src] || 0) + 1;
+    });
+    const total = opportunities.length || 1;
+    const colors = {
+      'GitHub': '#2ea44f',
+      'Hacker News': '#ff6600',
+      'Stack Overflow': '#f48024',
+      'Reddit': '#ff4500'
+    };
+    return Object.entries(counts).map(([source, count]) => ({
+      source,
+      count,
+      percentage: opportunities.length ? Math.round((count / total) * 100) : 0,
+      color: colors[source] || '#3b82f6'
+    }));
+  }, [opportunities]);
+
   // Source logo mapper for the distribution section
   const getSourceLogo = (sourceName) => {
-    const s = sourceName.toLowerCase();
+    const s = (sourceName || '').toLowerCase();
     if (s.includes('github')) return <LogoGitHub size={16} />;
     if (s.includes('reddit')) return <LogoReddit size={16} />;
     if (s.includes('hacker') || s.includes('hn')) return <LogoHackerNews size={16} />;
     if (s.includes('stack')) return <LogoStackOverflow size={16} />;
+    if (s.includes('linkedin')) return <LogoLinkedIn size={16} />;
     return <LogoGitHub size={16} />;
   };
 
@@ -108,7 +142,7 @@ export function DashboardPage() {
           <div className="metric-num-line">
             <span className="metric-primary-val font-editorial">{newOppsCount}</span>
           </div>
-          <span className="metric-foot-note">Sample signals</span>
+          <span className="metric-foot-note">Live verified signals</span>
         </div>
 
         <div className="summary-metric-item card-panel">
@@ -119,13 +153,13 @@ export function DashboardPage() {
           <span className="metric-foot-note">Active threads</span>
         </div>
 
-        <div className="summary-metric-item card-panel">
+        <Link to="/meetings" className="summary-metric-item card-panel link-card-metric">
           <span className="metric-title-label">Meetings</span>
           <div className="metric-num-line">
             <span className="metric-primary-val font-editorial">{meetingsCount}</span>
           </div>
-          <span className="metric-foot-note">Architecture reviews</span>
-        </div>
+          <span className="metric-foot-note">Scheduled briefs & notes</span>
+        </Link>
 
         <div className="summary-metric-item card-panel">
           <span className="metric-title-label">Closed Won</span>
@@ -140,89 +174,143 @@ export function DashboardPage() {
       <section className="dashboard-section-block">
         <div className="section-header-row">
           <h2 className="section-main-title font-editorial">Recent Opportunities</h2>
-          <Link to="/opportunities" className="btn btn-outline btn-sm">
-            <span>View all {opportunities.length}</span>
-            <IconArrowRight size={13} />
-          </Link>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              onClick={syncBackendSignals}
+              disabled={isDiscoveringLive}
+              title="Retrieve fresh live technical signals from external APIs"
+            >
+              <IconRefresh size={13} className={isDiscoveringLive ? 'spin' : ''} />
+              <span>{isDiscoveringLive ? 'Syncing...' : 'Sync Live Signals'}</span>
+            </button>
+            <Link to="/opportunities" className="btn btn-outline btn-sm">
+              <span>View all {opportunities.length}</span>
+              <IconArrowRight size={13} />
+            </Link>
+          </div>
         </div>
 
-        {/* Rounded Tiles List (12px radius, 8px gap, 14-16px padding) */}
-        <div className="recent-opps-tiles-list" role="list">
-          {recentOpportunities.map((opp) => {
-            const shortTitle = getShortProblemTitle(opp.title);
-            return (
-              <div key={opp.id} className="opp-tile-card" role="listitem">
-                {/* Left Area: Short Problem Title & Source / Company Meta */}
-                <div className="opp-tile-main-block">
-                  <Link
-                    to={`/opportunity/${opp.id}`}
-                    className="opp-tile-problem-title"
-                    title={opp.title}
-                  >
-                    {shortTitle}
-                  </Link>
-
-                  <div className="opp-tile-supporting-meta">
-                    <div className="opp-tile-source-info">
-                      <span className="opp-tile-source-logo" aria-hidden="true">
-                        {getSourceLogo(opp.source)}
-                      </span>
-                      <span className="opp-tile-source-name">{opp.source}</span>
-                      {opp.sourceUrl && (
-                        <a
-                          href={opp.sourceUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="opp-tile-source-link"
-                          title="View public discussion thread"
-                          onClick={(e) => e.stopPropagation()}
-                          aria-label={`Open ${opp.source} thread in new tab`}
-                        >
-                          <IconExternalLink size={11} />
-                        </a>
-                      )}
-                      <span className="meta-bullet-sep">•</span>
-                      <span className="opp-tile-recency">{opp.postedAt}</span>
-                    </div>
-
-                    {opp.company && (
-                      <div className="opp-tile-company-info">
-                        <span className="meta-bullet-sep">•</span>
-                        <span className="opp-tile-company-name">{opp.company}</span>
-                        {opp.location && (
-                          <span className="opp-tile-company-location">
-                            ({opp.location})
-                          </span>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Right Area: Opportunity Score, Status Pill & View Action */}
-                <div className="opp-tile-actions-block">
-                  <div className="opp-tile-score-box">
-                    <ScoreBadge score={opp.score} size="small" />
-                  </div>
-
-                  <div className="opp-tile-status-box">
-                    <span className="opp-tile-status-badge">{opp.pipelineStage}</span>
-                  </div>
-
-                  <div className="opp-tile-btn-box">
+        {/* Empty state or Rounded Tiles List */}
+        {recentOpportunities.length === 0 ? (
+          <div className="card-panel empty-opportunities-card" style={{ textAlign: 'center', padding: '40px 24px', borderRadius: '12px' }}>
+            {!backendStatus?.isOnline ? (
+              <>
+                <h3 className="font-editorial" style={{ fontSize: '1.25rem', marginBottom: '8px' }}>
+                  FastAPI Backend Offline
+                </h3>
+                <p style={{ color: 'var(--color-text-muted)', maxWidth: '480px', margin: '0 auto 16px', fontSize: '0.88rem' }}>
+                  DarkIntent streams genuine technical discussions directly from our Python FastAPI backend service. Start the backend with <code>python backend/run.py</code>.
+                </p>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  onClick={checkBackend}
+                  disabled={backendStatus?.checking}
+                >
+                  <IconRefresh size={13} className={backendStatus?.checking ? 'spin' : ''} />
+                  <span>{backendStatus?.checking ? 'Checking Connection...' : 'Check Connection'}</span>
+                </button>
+              </>
+            ) : (
+              <>
+                <h3 className="font-editorial" style={{ fontSize: '1.25rem', marginBottom: '8px' }}>
+                  No Live Opportunities Ingested Yet
+                </h3>
+                <p style={{ color: 'var(--color-text-muted)', maxWidth: '480px', margin: '0 auto 16px', fontSize: '0.88rem' }}>
+                  Backend database is online. Trigger an external discovery scan to ingest real public technical problems from GitHub, Hacker News, and Stack Overflow.
+                </p>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  onClick={syncBackendSignals}
+                  disabled={isDiscoveringLive}
+                >
+                  <IconRefresh size={13} className={isDiscoveringLive ? 'spin' : ''} />
+                  <span>{isDiscoveringLive ? 'Scanning APIs...' : '⚡ Scan Real Data Sources'}</span>
+                </button>
+              </>
+            )}
+          </div>
+        ) : (
+          <div className="recent-opps-tiles-list" role="list">
+            {recentOpportunities.map((opp) => {
+              const shortTitle = getShortProblemTitle(opp.title);
+              return (
+                <div key={opp.id} className="opp-tile-card" role="listitem">
+                  {/* Left Area: Short Problem Title & Source / Company Meta */}
+                  <div className="opp-tile-main-block">
                     <Link
                       to={`/opportunity/${opp.id}`}
-                      className="btn btn-outline btn-xs opp-tile-inspect-btn"
-                      title="Inspect opportunity details"
+                      className="opp-tile-problem-title"
+                      title={opp.title}
                     >
-                      <span>View</span>
+                      {shortTitle}
                     </Link>
+
+                    <div className="opp-tile-supporting-meta">
+                      <div className="opp-tile-source-info">
+                        <span className="opp-tile-source-logo" aria-hidden="true">
+                          {getSourceLogo(opp.source)}
+                        </span>
+                        <span className="opp-tile-source-name">{opp.source}</span>
+                        {opp.sourceUrl && (
+                          <a
+                            href={opp.sourceUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="opp-tile-source-link"
+                            title="View public discussion thread"
+                            onClick={(e) => e.stopPropagation()}
+                            aria-label={`Open ${opp.source} thread in new tab`}
+                          >
+                            <IconExternalLink size={11} />
+                          </a>
+                        )}
+                        <span className="meta-bullet-sep">•</span>
+                        <span className="opp-tile-recency">{opp.postedAt}</span>
+                      </div>
+
+                      {opp.company && (
+                        <div className="opp-tile-company-info">
+                          <span className="meta-bullet-sep">•</span>
+                          <span className="opp-tile-company-name">{opp.company}</span>
+                          {opp.location && (
+                            <span className="opp-tile-company-location">
+                              ({opp.location})
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Right Area: Opportunity Score, Status Pill & View Action */}
+                  <div className="opp-tile-actions-block">
+                    <div className="opp-tile-score-box">
+                      <ScoreBadge score={opp.score} size="small" />
+                    </div>
+
+                    <div className="opp-tile-status-box">
+                      <span className="opp-tile-status-badge">{opp.pipelineStage}</span>
+                    </div>
+
+                    <div className="opp-tile-btn-box">
+                      <Link
+                        to={`/opportunity/${opp.id}`}
+                        className="btn btn-outline btn-xs opp-tile-inspect-btn"
+                        title="Inspect opportunity details"
+                      >
+                        <span>View</span>
+                      </Link>
+                    </div>
                   </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        )}
       </section>
 
       {/* Compact Source Distribution with Authentic Brand Logos */}
@@ -230,12 +318,12 @@ export function DashboardPage() {
         <div className="panel-header">
           <div>
             <h3 className="panel-title font-editorial">Source Distribution</h3>
-            <span className="panel-hint">Sample dataset · 4 public channels</span>
+            <span className="panel-hint">Live data feed · {opportunities.length} genuine signals indexed</span>
           </div>
         </div>
 
         <div className="brand-sources-compact-grid">
-          {ANALYTICS_DATA.sourceDistribution.map((item) => (
+          {dynamicSourceDistribution.map((item) => (
             <div key={item.source} className="brand-source-compact-card">
               <div className="brand-source-meta">
                 <div className="brand-icon-wrap">

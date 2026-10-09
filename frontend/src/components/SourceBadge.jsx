@@ -1,4 +1,4 @@
-import { LogoGitHub, LogoReddit, LogoHackerNews, LogoStackOverflow } from './Icons';
+import { LogoGitHub, LogoReddit, LogoHackerNews, LogoStackOverflow, LogoLinkedIn } from './Icons';
 
 export function SourceBadge({ source, channel = '', url = '', showName = true, iconSize = 14 }) {
   const norm = (source || '').toLowerCase();
@@ -15,6 +15,9 @@ export function SourceBadge({ source, channel = '', url = '', showName = true, i
   } else if (norm.includes('stack')) {
     LogoComponent = LogoStackOverflow;
     badgeClass = 'source-so';
+  } else if (norm.includes('linkedin')) {
+    LogoComponent = LogoLinkedIn;
+    badgeClass = 'source-linkedin';
   } else if (norm.includes('hacker') || norm.includes('hn')) {
     LogoComponent = LogoHackerNews;
     badgeClass = 'source-hn';

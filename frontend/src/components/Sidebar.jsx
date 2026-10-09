@@ -8,14 +8,16 @@ import {
   IconBook,
   IconBarChart,
   IconBuilding,
-  IconRefresh,
+  IconCalendar,
   IconClose,
-  IconUser
+  IconUser,
+  IconRefresh
 } from './Icons';
 
 export function Sidebar({ isOpen, onClose }) {
   const {
     opportunities,
+    meetings = [],
     productProfile,
     currentUser,
     backendStatus,
@@ -25,6 +27,7 @@ export function Sidebar({ isOpen, onClose }) {
 
   const activePipelineCount = opportunities.filter((o) => o.pipelineStage !== 'Won/Lost').length;
   const highIntentCount = opportunities.filter((o) => o.score >= 90).length;
+  const upcomingMeetingsCount = meetings.filter((m) => m.status === 'Confirmed' || m.status === 'Proposed').length;
 
   const navItems = [
     { to: '/dashboard', label: 'Dashboard', icon: IconDashboard },
@@ -43,6 +46,12 @@ export function Sidebar({ isOpen, onClose }) {
     },
     { to: '/outreach', label: 'Outreach', icon: IconMail },
     { to: '/pipeline', label: 'Pipeline', icon: IconLayers },
+    {
+      to: '/meetings',
+      label: 'Meetings',
+      icon: IconCalendar,
+      badge: upcomingMeetingsCount ? `${upcomingMeetingsCount}` : null
+    },
     { to: '/knowledge', label: 'Knowledge Base', icon: IconBook },
     { to: '/analytics', label: 'Analytics', icon: IconBarChart }
   ];
@@ -138,10 +147,10 @@ export function Sidebar({ isOpen, onClose }) {
 
             <div className="sidebar-backend-status">
               <span
-                className={`backend-dot ${backendStatus.isOnline ? 'dot-online' : 'dot-local'}`}
+                className={`backend-dot ${backendStatus.isOnline ? 'dot-online' : 'dot-offline'}`}
               />
               <span className="backend-text">
-                {backendStatus.isOnline ? 'Live API :8000' : 'Demo data (offline)'}
+                {backendStatus.isOnline ? 'Live API :8000' : 'Backend Offline'}
               </span>
               <button
                 type="button"

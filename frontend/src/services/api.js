@@ -1,4 +1,3 @@
-import { SAMPLE_OPPORTUNITIES } from '../data/sampleData';
 
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 
@@ -39,25 +38,25 @@ export async function checkBackendHealth() {
 }
 
 /**
- * Fetch all opportunities
+ * Fetch all opportunities from genuine backend API
  */
 export async function fetchOpportunities() {
   try {
     const res = await fetchWithTimeout(`${API_BASE_URL}/api/opportunities`, { method: 'GET' });
     if (res.ok) {
       const data = await res.json();
-      if (Array.isArray(data) && data.length > 0) {
+      if (Array.isArray(data)) {
         return { source: 'api', data };
       }
     }
-  } catch {
-    // Graceful fallback to local sample data
+    return { source: 'api_error', error: `Server returned HTTP ${res.status}`, data: [] };
+  } catch (err) {
+    return { source: 'offline', error: err.message, data: [] };
   }
-  return { source: 'local', data: SAMPLE_OPPORTUNITIES };
 }
 
 /**
- * Fetch single opportunity by ID
+ * Fetch single opportunity by ID from genuine backend API
  */
 export async function fetchOpportunityById(id) {
   try {
@@ -67,10 +66,24 @@ export async function fetchOpportunityById(id) {
       return { source: 'api', data };
     }
   } catch {
-    // Graceful fallback to local sample data
+    // Retain null on error - never fabricate mock records
   }
-  const match = SAMPLE_OPPORTUNITIES.find((item) => item.id === id);
-  return { source: 'local', data: match || null };
+  return { source: 'not_found', data: null };
+}
+
+/**
+ * Trigger backend data refresh across live providers (GitHub, Hacker News, Stack Overflow)
+ */
+export async function triggerBackendRefresh() {
+  try {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/refresh`, { method: 'POST' });
+    if (res.ok) {
+      return await res.json();
+    }
+    return { status: 'error', error: `HTTP ${res.status}` };
+  } catch (err) {
+    return { status: 'error', error: err.message };
+  }
 }
 
 /**
@@ -168,3 +181,60 @@ export async function generateOutreachApi(payload) {
     body
   };
 }
+
+/**
+ * Send prompt or action to DarkIntent AI Sales Agent
+ */
+export async function sendAgentQuery(payload) {
+  try {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/agent/chat`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    }, 9000);
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (err) {
+    // Graceful fallback with contextual message
+    return {
+      response: `Connection notice: Could not reach agent backend endpoint (${err.message}). Verify backend is running on http://127.0.0.1:8000.`,
+      mode: 'offline_notice'
+    };
+  }
+}
+
+/**
+ * Fetch verified company and business enrichment for an opportunity
+ */
+export async function enrichCompany(oppId) {
+  try {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/enrichment/${oppId}`, {
+      method: 'GET'
+    }, 4000);
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+/**
+ * Request Groq LLM deep technical analysis of an opportunity across 9 dimensions
+ */
+export async function analyzeOpportunity(oppId) {
+  try {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/api/opportunities/${oppId}/analyze`, {
+      method: 'POST'
+    }, 15000);
+    if (res.ok) {
+      return await res.json();
+    }
+    const errData = await res.json().catch(() => ({}));
+    return { error: errData.error || `HTTP ${res.status}` };
+  } catch (err) {
+    return { error: err.message };
+  }
+}
+

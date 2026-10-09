@@ -1,6 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { SAMPLE_OPPORTUNITIES } from '../data/sampleData';
-import { checkBackendHealth, fetchOpportunities, scoreOpportunityApi } from '../services/api';
+import { SAMPLE_MEETINGS } from '../data/sampleMeetings';
+import { checkBackendHealth, fetchOpportunities, scoreOpportunityApi, triggerBackendRefresh } from '../services/api';
+import {
+  fetchLiveHackerNewsSignals,
+  enrichCompanyViaLinkedIn,
+  exportToCsv
+} from '../services/discoveryService';
 import { OpportunitiesContext } from './OpportunitiesContextDef';
 
 const DEFAULT_PRODUCT_PROFILE = {
@@ -55,7 +61,7 @@ function evaluateProductRelevance(opp, profile) {
   } else if (uniqueMatched.length === 1) {
     category = 'Direct Keyword Match';
     relevanceScore = 82;
-    rationale = `Direct overlap on key term "${uniqueMatched[0]}" in ${opp.company}'s engineering environment.`;
+    rationale = `Direct overlap on key term "${uniqueMatched[0]}" in ${opp.company || 'the engineering'}'s environment.`;
   }
 
   return {
@@ -66,10 +72,35 @@ function evaluateProductRelevance(opp, profile) {
   };
 }
 
-
 export function OpportunitiesProvider({ children }) {
   const [opportunities, setOpportunities] = useState(() => {
     const saved = localStorage.getItem('darkintent_opportunities');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        // Only keep genuine live opportunities, never hardcoded legacy samples
+        const liveOnly = Array.isArray(parsed)
+          ? parsed.filter(
+              (o) =>
+                o.isLive ||
+                (typeof o.id === 'string' &&
+                  (o.id.startsWith('gh-') ||
+                    o.id.startsWith('hn-') ||
+                    o.id.startsWith('so-') ||
+                    o.id.startsWith('rd-')))
+            )
+          : [];
+        if (liveOnly.length > 0) return liveOnly;
+      } catch {
+        // ignore
+      }
+    }
+    // Live feed starts with empty array until backend loads genuine records
+    return [];
+  });
+
+  const [meetings, setMeetings] = useState(() => {
+    const saved = localStorage.getItem('darkintent_meetings');
     if (saved) {
       try {
         return JSON.parse(saved);
@@ -77,7 +108,37 @@ export function OpportunitiesProvider({ children }) {
         // ignore
       }
     }
-    return SAMPLE_OPPORTUNITIES;
+    return SAMPLE_MEETINGS;
+  });
+
+  const [integrations, setIntegrations] = useState(() => {
+    const saved = localStorage.getItem('darkintent_integrations');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch {
+        // ignore
+      }
+    }
+    return {
+      googleCalendar: {
+        connected: false,
+        email: '',
+        autoSync: true,
+        calendarName: 'Sales Pipeline (DarkIntent)'
+      },
+      googleSheets: {
+        connected: false,
+        sheetUrl: '',
+        autoExport: false,
+        lastSynced: null
+      },
+      linkedIn: {
+        connected: false,
+        apiKey: '',
+        enrichedCompaniesCount: 2
+      }
+    };
   });
 
   const [productProfile, setProductProfile] = useState(() => {
@@ -111,6 +172,7 @@ export function OpportunitiesProvider({ children }) {
     url: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
   });
 
+  const [isDiscoveringLive, setIsDiscoveringLive] = useState(false);
   const [toasts, setToasts] = useState([]);
 
   const showToast = useCallback((message, type = 'success') => {
@@ -134,6 +196,24 @@ export function OpportunitiesProvider({ children }) {
     }
   }, [opportunities]);
 
+  // Save meetings to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem('darkintent_meetings', JSON.stringify(meetings));
+    } catch {
+      // ignore
+    }
+  }, [meetings]);
+
+  // Save integrations to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem('darkintent_integrations', JSON.stringify(integrations));
+    } catch {
+      // ignore
+    }
+  }, [integrations]);
+
   // Check backend health on mount
   useEffect(() => {
     let isMounted = true;
@@ -148,10 +228,9 @@ export function OpportunitiesProvider({ children }) {
         info: health.data || health.error
       });
       if (health.isOnline) {
-        showToast('Connected to live backend at ' + health.url, 'success');
-        const res = await fetchOpportunities();
-        if (isMounted && res.source === 'api' && Array.isArray(res.data) && res.data.length > 0) {
-          setOpportunities(res.data);
+        const opps = await fetchOpportunities();
+        if (isMounted && opps && opps.data) {
+          setOpportunities(opps.data);
         }
       }
     }
@@ -159,7 +238,7 @@ export function OpportunitiesProvider({ children }) {
     return () => {
       isMounted = false;
     };
-  }, [showToast]);
+  }, []);
 
   const checkBackend = useCallback(async () => {
     setBackendStatus((prev) => ({ ...prev, checking: true }));
@@ -172,20 +251,39 @@ export function OpportunitiesProvider({ children }) {
       info: health.data || health.error
     });
     if (health.isOnline) {
-      showToast('Connected to live backend at ' + health.url, 'success');
-      const res = await fetchOpportunities();
-      if (res.source === 'api' && Array.isArray(res.data) && res.data.length > 0) {
-        setOpportunities(res.data);
+      showToast('Connected to Python FastAPI backend service', 'success');
+      const opps = await fetchOpportunities();
+      if (opps && Array.isArray(opps.data)) {
+        setOpportunities(opps.data);
       }
     } else {
-      showToast('Backend offline. Operating in local demo mode.', 'info');
+      showToast('Backend offline. Run "python backend/run.py" to connect live API.', 'error');
     }
   }, [showToast]);
 
-  const saveProductProfile = useCallback((profileData) => {
-    setProductProfile(profileData);
+  const syncBackendSignals = useCallback(async () => {
+    setIsDiscoveringLive(true);
+    showToast('Triggering live retrieval across GitHub, Hacker News & Stack Overflow...', 'info');
     try {
-      localStorage.setItem('darkintent_product_profile', JSON.stringify(profileData));
+      await triggerBackendRefresh();
+      // Wait briefly for background collection to complete
+      await new Promise((r) => setTimeout(r, 2000));
+      const opps = await fetchOpportunities();
+      if (opps && Array.isArray(opps.data)) {
+        setOpportunities(opps.data);
+        showToast(`Synced ${opps.data.length} genuine technical opportunities from live sources!`, 'success');
+      }
+    } catch {
+      showToast('Failed to sync signals from backend.', 'error');
+    } finally {
+      setIsDiscoveringLive(false);
+    }
+  }, [showToast]);
+
+  const saveProductProfile = useCallback((profile) => {
+    setProductProfile(profile);
+    try {
+      localStorage.setItem('darkintent_product_profile', JSON.stringify(profile));
     } catch {
       // ignore
     }
@@ -265,10 +363,232 @@ export function OpportunitiesProvider({ children }) {
     showToast('Outreach recorded. Deal moved to "Contacted"', 'success');
   }, [showToast]);
 
-  const resetToDefaultData = useCallback(() => {
+  // Hacker News Live Fetch Action
+  const fetchLiveHnOpportunities = useCallback(async (query) => {
+    setIsDiscoveringLive(true);
+    showToast('Retrieving live developer discussions from Hacker News API...', 'info');
+    try {
+      const liveSignals = await fetchLiveHackerNewsSignals(query);
+      if (liveSignals && liveSignals.length > 0) {
+        setOpportunities((prev) => {
+          const existingIds = new Set(prev.map((o) => o.id));
+          const newUnique = liveSignals.filter((s) => !existingIds.has(s.id));
+          if (newUnique.length === 0) {
+            return prev;
+          }
+          const merged = [...newUnique, ...prev];
+          try {
+            localStorage.setItem('darkintent_opportunities', JSON.stringify(merged));
+          } catch {
+            // ignore
+          }
+          return merged;
+        });
+        showToast(`Discovered ${liveSignals.length} live technical signals from Hacker News!`, 'success');
+      }
+    } catch {
+      showToast('Live HN fetch failed. Retaining current signals.', 'error');
+    } finally {
+      setIsDiscoveringLive(false);
+    }
+  }, [showToast]);
+
+  // Meeting Management
+  const addMeeting = useCallback((newMeeting) => {
+    const meetingRecord = {
+      ...newMeeting,
+      id: newMeeting.id || `mtg-${Date.now().toString(36)}`,
+      createdAt: new Date().toISOString(),
+      status: newMeeting.status || 'Confirmed'
+    };
+
+    setMeetings((prev) => [meetingRecord, ...prev]);
+
+    // Connect to linked opportunity
+    if (meetingRecord.opportunityId) {
+      setOpportunities((prev) =>
+        prev.map((opp) => {
+          if (opp.id === meetingRecord.opportunityId) {
+            return {
+              ...opp,
+              pipelineStage: 'Meeting',
+              meetingId: meetingRecord.id,
+              meetingDate: meetingRecord.date,
+              meetingStatus: meetingRecord.status
+            };
+          }
+          return opp;
+        })
+      );
+    }
+
+    showToast(`Meeting scheduled with ${meetingRecord.company} for ${meetingRecord.date} at ${meetingRecord.time}`, 'success');
+    return meetingRecord;
+  }, [showToast]);
+
+  const updateMeeting = useCallback((meetingId, updates) => {
+    setMeetings((prev) =>
+      prev.map((m) => {
+        if (m.id === meetingId) {
+          const updated = { ...m, ...updates };
+          if (updates.status && updated.opportunityId) {
+            setOpportunities((opps) =>
+              opps.map((opp) =>
+                opp.id === updated.opportunityId
+                  ? {
+                      ...opp,
+                      meetingStatus: updates.status,
+                      ...(updates.status === 'Completed' ? { pipelineStage: 'Engaged' } : {})
+                    }
+                  : opp
+              )
+            );
+          }
+          return updated;
+        }
+        return m;
+      })
+    );
+    showToast('Meeting record updated', 'success');
+  }, [showToast]);
+
+  const cancelMeeting = useCallback((meetingId) => {
+    setMeetings((prev) =>
+      prev.map((m) => {
+        if (m.id === meetingId) {
+          if (m.opportunityId) {
+            setOpportunities((opps) =>
+              opps.map((opp) =>
+                opp.id === m.opportunityId ? { ...opp, meetingStatus: 'Cancelled' } : opp
+              )
+            );
+          }
+          return { ...m, status: 'Cancelled' };
+        }
+        return m;
+      })
+    );
+    showToast('Meeting cancelled', 'info');
+  }, [showToast]);
+
+  const saveMeetingNotes = useCallback((meetingId, notesData) => {
+    setMeetings((prev) =>
+      prev.map((m) => {
+        if (m.id === meetingId) {
+          const updated = {
+            ...m,
+            status: 'Completed',
+            notes: {
+              ...(m.notes || {}),
+              ...notesData,
+              savedAt: new Date().toISOString()
+            }
+          };
+
+          if (notesData.proposedStage && m.opportunityId) {
+            setOpportunities((opps) =>
+              opps.map((opp) =>
+                opp.id === m.opportunityId
+                  ? {
+                      ...opp,
+                      pipelineStage: notesData.proposedStage,
+                      meetingStatus: 'Completed',
+                      meetingNotesSummary: notesData.discussionSummary
+                    }
+                  : opp
+              )
+            );
+          }
+          return updated;
+        }
+        return m;
+      })
+    );
+    showToast('Meeting notes & follow-up actions saved', 'success');
+  }, [showToast]);
+
+  const updateIntegration = useCallback((key, updates) => {
+    setIntegrations((prev) => ({
+      ...prev,
+      [key]: { ...(prev[key] || {}), ...updates }
+    }));
+    showToast('Integration configuration updated', 'success');
+  }, [showToast]);
+
+  const exportOpportunitiesCsv = useCallback(() => {
+    const headers = {
+      id: 'Opportunity ID',
+      company: 'Company',
+      domain: 'Domain',
+      location: 'Location',
+      industry: 'Industry',
+      title: 'Problem Title',
+      source: 'Source',
+      severity: 'Severity',
+      score: 'Fit Score',
+      technologies: 'Technologies',
+      pipelineStage: 'Pipeline Stage',
+      postedAt: 'Discovered'
+    };
+    const ok = exportToCsv('darkintent-opportunities', opportunities, headers);
+    if (ok) showToast('Opportunities exported to CSV', 'success');
+    return ok;
+  }, [opportunities, showToast]);
+
+  const exportMeetingsCsv = useCallback(() => {
+    const headers = {
+      id: 'Meeting ID',
+      company: 'Company',
+      prospectName: 'Contact Name',
+      prospectEmail: 'Contact Email',
+      date: 'Date',
+      time: 'Time',
+      durationMinutes: 'Duration (min)',
+      timezone: 'Timezone',
+      meetingType: 'Type',
+      status: 'Status',
+      locationOrLink: 'Link / Location'
+    };
+    const ok = exportToCsv('darkintent-meetings', meetings, headers);
+    if (ok) showToast('Meetings exported to CSV', 'success');
+    return ok;
+  }, [meetings, showToast]);
+
+  const exportPipelineCsv = useCallback(() => {
+    const headers = {
+      id: 'Opportunity ID',
+      company: 'Company',
+      title: 'Opportunity Title',
+      pipelineStage: 'Pipeline Stage',
+      score: 'Score',
+      meetingDate: 'Scheduled Meeting',
+      meetingStatus: 'Meeting Status',
+      lastOutreachTone: 'Outreach Tone'
+    };
+    const ok = exportToCsv('darkintent-pipeline', opportunities, headers);
+    if (ok) showToast('Sales pipeline exported to CSV', 'success');
+    return ok;
+  }, [opportunities, showToast]);
+
+  const resetToDefaultData = useCallback(async () => {
     localStorage.removeItem('darkintent_opportunities');
+    localStorage.removeItem('darkintent_meetings');
+    localStorage.removeItem('darkintent_integrations');
+    const opps = await fetchOpportunities();
+    if (opps && Array.isArray(opps.data) && opps.data.length > 0) {
+      setOpportunities(opps.data);
+      showToast(`Reloaded ${opps.data.length} genuine technical opportunities from backend`, 'info');
+    } else {
+      setOpportunities([]);
+      showToast('Local storage cleared. Live opportunity feed is ready.', 'info');
+    }
+    setMeetings(SAMPLE_MEETINGS);
+  }, [showToast]);
+
+  const loadDemoFixtures = useCallback(() => {
     setOpportunities(SAMPLE_OPPORTUNITIES);
-    showToast('Sample dataset restored to initial state', 'info');
+    setMeetings(SAMPLE_MEETINGS);
+    showToast('Loaded offline demo fixtures (clearly separated from live production data)', 'info');
   }, [showToast]);
 
   const getOpportunityById = useCallback((id) => {
@@ -279,6 +599,8 @@ export function OpportunitiesProvider({ children }) {
     <OpportunitiesContext.Provider
       value={{
         opportunities,
+        meetings,
+        integrations,
         productProfile,
         saveProductProfile,
         currentUser,
@@ -290,6 +612,19 @@ export function OpportunitiesProvider({ children }) {
         updateOpportunityStage,
         recalculateScore,
         recordOutreachSent,
+        addMeeting,
+        updateMeeting,
+        cancelMeeting,
+        saveMeetingNotes,
+        fetchLiveHnOpportunities,
+        syncBackendSignals,
+        loadDemoFixtures,
+        isDiscoveringLive,
+        updateIntegration,
+        exportOpportunitiesCsv,
+        exportMeetingsCsv,
+        exportPipelineCsv,
+        enrichCompanyViaLinkedIn,
         resetToDefaultData,
         getOpportunityById,
         toasts,

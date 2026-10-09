@@ -15,8 +15,11 @@ import { DiscoverPage } from './pages/DiscoverPage';
 import { OpportunityDetailPage } from './pages/OpportunityDetailPage';
 import { OutreachPage } from './pages/OutreachPage';
 import { PipelinePage } from './pages/PipelinePage';
+import { MeetingsPage } from './pages/MeetingsPage';
 import { KnowledgeBasePage } from './pages/KnowledgeBasePage';
 import { AnalyticsPage } from './pages/AnalyticsPage';
+
+import { FloatingAiAgent } from './components/FloatingAiAgent';
 
 import './index.css';
 
@@ -40,6 +43,7 @@ function AppLayout() {
         </main>
       </div>
 
+      <FloatingAiAgent />
       <ToastContainer />
     </div>
   );
@@ -64,6 +68,7 @@ export default function App() {
             <Route path="/outreach" element={<OutreachPage />} />
             <Route path="/outreach/:id" element={<OutreachPage />} />
             <Route path="/pipeline" element={<PipelinePage />} />
+            <Route path="/meetings" element={<MeetingsPage />} />
             <Route path="/knowledge" element={<KnowledgeBasePage />} />
             <Route path="/analytics" element={<AnalyticsPage />} />
           </Route>

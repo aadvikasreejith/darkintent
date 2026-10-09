@@ -9,11 +9,13 @@ import {
   IconSearch,
   IconArrowLeft,
   IconArrowRight,
-  IconMail
+  IconMail,
+  IconCalendar,
+  IconDownload
 } from '../components/Icons';
 
 export function PipelinePage() {
-  const { opportunities, updateOpportunityStage } = useOpportunities();
+  const { opportunities, updateOpportunityStage, exportPipelineCsv, meetings = [] } = useOpportunities();
   const [pipelineSearch, setPipelineSearch] = useState('');
   const [selectedTech, setSelectedTech] = useState('All');
 
@@ -29,8 +31,8 @@ export function PipelinePage() {
     return opportunities.filter((o) => {
       if (pipelineSearch.trim()) {
         const q = pipelineSearch.toLowerCase();
-        const mCompany = o.company.toLowerCase().includes(q);
-        const mTitle = o.title.toLowerCase().includes(q);
+        const mCompany = (o.company || o.sourceIdentifier || '').toLowerCase().includes(q);
+        const mTitle = (o.title || '').toLowerCase().includes(q);
         const mLoc = (o.location || '').toLowerCase().includes(q);
         if (!mCompany && !mTitle && !mLoc) return false;
       }
@@ -105,10 +107,19 @@ export function PipelinePage() {
           </div>
         </div>
 
-        <div className="pipeline-toolbar-right">
+        <div className="pipeline-toolbar-right flex-row items-center gap-2">
           <span className="pipeline-deals-count font-medium">
             {filteredOpps.length} deals in pipeline
           </span>
+          <button
+            type="button"
+            className="btn btn-outline btn-xs"
+            onClick={exportPipelineCsv}
+            title="Export complete pipeline to CSV"
+          >
+            <IconDownload size={12} />
+            <span>Export CSV</span>
+          </button>
         </div>
       </div>
 
@@ -146,7 +157,7 @@ export function PipelinePage() {
                         {/* Company & Score */}
                         <div className="kanban-card-top">
                           <div className="kanban-company-block">
-                            <span className="kanban-company font-semibold">{opp.company}</span>
+                            <span className="kanban-company font-semibold">{opp.company || opp.sourceIdentifier || 'Community Discussion'}</span>
                             <span className="kanban-location-sub">{opp.location}</span>
                           </div>
                           <ScoreBadge score={opp.score} size="small" showLabel={false} />
@@ -164,6 +175,26 @@ export function PipelinePage() {
                             {formatINR(opp.pipelineValue || 3500000, true)}
                           </span>
                         </div>
+
+                        {/* Meeting Schedule Pill if exists */}
+                        {(() => {
+                          const linkedMtg = meetings.find((m) => m.opportunityId === opp.id || m.id === opp.meetingId);
+                          if (!linkedMtg && !opp.meetingDate) return null;
+                          const mStatus = linkedMtg?.status || opp.meetingStatus || 'Scheduled';
+                          const mDate = linkedMtg?.date || opp.meetingDate;
+                          return (
+                            <div className="kanban-mtg-indicator-row">
+                              <Link
+                                to={`/meetings?oppId=${opp.id}`}
+                                className={`kanban-mtg-chip status-${mStatus.toLowerCase().replace(/\s+/g, '-')}`}
+                                title={`Meeting: ${mStatus} on ${mDate}`}
+                              >
+                                <IconCalendar size={11} />
+                                <span>{mDate} · {mStatus}</span>
+                              </Link>
+                            </div>
+                          );
+                        })()}
 
                         {/* Source Logo & Recency */}
                         <div className="kanban-source-row">
@@ -209,6 +240,13 @@ export function PipelinePage() {
                           </div>
 
                           <div className="quick-links-group">
+                            <Link
+                              to={`/meetings?oppId=${opp.id}`}
+                              className="kanban-action-link"
+                              title="Schedule or inspect meeting"
+                            >
+                              <IconCalendar size={13} />
+                            </Link>
                             <Link to={`/outreach/${opp.id}`} className="kanban-action-link" title="Compose outreach">
                               <IconMail size={13} />
                             </Link>

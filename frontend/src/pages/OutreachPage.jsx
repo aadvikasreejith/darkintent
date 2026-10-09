@@ -1,12 +1,13 @@
 import { useState, useMemo } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useOpportunities } from '../context/useOpportunities';
 import { generateOutreachApi } from '../services/api';
 import {
   IconCopy,
   IconCheck,
   IconSparkles,
-  IconMail
+  IconMail,
+  IconCalendar
 } from '../components/Icons';
 
 function parseDraft(opp, tone) {
@@ -22,7 +23,7 @@ function parseDraft(opp, tone) {
     };
   }
   return {
-    subject: `Solving ${opp.company}'s ${opp.technologies?.[0] || 'infrastructure'} challenge`,
+    subject: `Solving ${opp.company || 'the team'}'s ${opp.technologies?.[0] || 'infrastructure'} challenge`,
     body: draft || 'Hi,\n\nI noticed your team troubleshooting technical bottlenecks on public developer channels...'
   };
 }
@@ -201,6 +202,15 @@ function OutreachComposer({
             {isSaved ? <IconCheck size={14} /> : null}
             <span>{isSaved ? 'Draft saved' : 'Save draft'}</span>
           </button>
+
+          <Link
+            to={`/meetings?oppId=${opportunity?.id}`}
+            className="btn btn-outline btn-sm"
+            title="Book executive discovery meeting with prospect"
+          >
+            <IconCalendar size={14} />
+            <span>Schedule Meeting →</span>
+          </Link>
 
           <button
             type="button"
